@@ -1,75 +1,572 @@
 /**
- * টেস্টের পরিবেশ: Code.gs (+ ঐচ্ছিক Api.gs) একটি আলাদা vm-এ চালায়,
- * Google-এর সার্ভিসের জায়গায় ব্রাউজারের একই gas-shim.js ব্যবহার করে।
+ * ============================================================
+ * TEST HARNESS
+ * ============================================================
+ *
+ * Code.gs + Barcode.gs + optional Api.gs
+ * একটি isolated VM environment-এর মধ্যে চালায়।
+ *
+ * Google Apps Script services-এর পরিবর্তে
+ * web/js/gas-shim.js ব্যবহার করা হয়।
+ *
+ * GitHub Actions এবং Local machine—দুই environment-এই
+ * repository root সঠিকভাবে detect করার চেষ্টা করে।
+ * ============================================================
  */
-const fs = require('fs'), path = require('path'), vm = require('vm'), crypto = require('crypto');
+
+const fs = require('fs');
+const path = require('path');
+const vm = require('vm');
+const crypto = require('crypto');
+
 const { createShim } = require('../web/js/gas-shim.js');
-const root = process.env.GITHUB_WORKSPACE || path.resolve(__dirname, '..');
-function makeEnv(opts) {
-  opts = opts || {};
-  const store = opts.store || { tables: {}, props: {}, cache: {}, files: {} };
-  if (opts.sheet1) store.tables['Sheet1'] = [];
-  const shim = createShim(store);
-  const clock = { now: new Date(opts.now || '2026-09-19T10:00:00Z') };
-  const FakeDate = class extends Date {
-    constructor(...a) { if (a.length === 0) super(clock.now.getTime()); else super(...a); }
-    static now() { return clock.now.getTime(); }
-  };
-  const g = Object.assign({ console, Date: FakeDate }, shim.globals);
-  if (opts.server) {   // Api.gs-এর জন্য বাড়তি সার্ভিস
-    g.ContentService = { MimeType: { JSON: 'JSON' }, createTextOutput: t => ({ text: t, setMimeType() { return this; }, getContent() { return t; } }) };
-    g.Utilities = Object.assign({}, g.Utilities, {
-      computeDigest: (alg, s) => Array.from(crypto.createHash('md5').update(String(s)).digest()).map(b => (b > 127 ? b - 256 : b)),
-      DigestAlgorithm: { MD5: 'MD5' }, Charset: { UTF_8: 'UTF_8' }
-    });
-    g.DriveApp = Object.assign({}, g.DriveApp, {
-      getFileById: id => ({
-        setTrashed() { delete store.files[id]; },
-        getBlob() { const f = store.files[id]; if (!f) throw new Error('not found'); return { getContentType: () => f.mime, getBytes: () => f.bytes }; }
-      })
-    });
+
+
+// ============================================================
+// REPOSITORY ROOT
+// ============================================================
+
+/*
+ * GitHub Actions-এ:
+ *
+ *   GITHUB_WORKSPACE
+ *
+ * repository-এর absolute path দেয়।
+ *
+ * Local machine-এ:
+ *
+ *   __dirname/..
+ *
+ * ব্যবহার করা হবে।
+ */
+
+const root = process.env.GITHUB_WORKSPACE
+  ? path.resolve(process.env.GITHUB_WORKSPACE)
+  : path.resolve(__dirname, '..');
+
+
+// ============================================================
+// IMPORTANT FILE PATHS
+// ============================================================
+
+const APPS_SCRIPT_DIR = path.join(root, 'apps-script');
+
+const BARCODE_FILE = path.join(
+  APPS_SCRIPT_DIR,
+  'Barcode.gs'
+);
+
+const CODE_FILE = path.join(
+  APPS_SCRIPT_DIR,
+  'Code.gs'
+);
+
+const API_FILE = path.join(
+  APPS_SCRIPT_DIR,
+  'Api.gs'
+);
+
+
+// ============================================================
+// FILE VALIDATION
+// ============================================================
+
+function requireFile(filePath, label) {
+  if (!fs.existsSync(filePath)) {
+    throw new Error(
+      [
+        '',
+        '============================================================',
+        'REQUIRED FILE NOT FOUND',
+        '============================================================',
+        `File: ${label}`,
+        `Path: ${filePath}`,
+        `Repository root: ${root}`,
+        `Current directory: ${process.cwd()}`,
+        '============================================================',
+        ''
+      ].join('\n')
+    );
   }
-  const ctx = vm.createContext(g);
-  vm.runInContext(fs.readFileSync(path.join(root, 'apps-script/Barcode.gs'), 'utf8'), ctx, { filename: 'Barcode.gs' });
-  vm.runInContext(fs.readFileSync(path.join(root, 'apps-script/Code.gs'), 'utf8'), ctx, { filename: 'Code.gs' });
-  if (opts.server) vm.runInContext(const barcodePath = path.join(root, 'apps-script', 'Barcode.gs');
-const codePath = path.join(root, 'apps-script', 'Code.gs');
-const apiPath = path.join(root, 'apps-script', 'Api.gs');
-
-if (!fs.existsSync(barcodePath)) {
-  throw new Error('Barcode.gs পাওয়া যায়নি: ' + barcodePath);
 }
 
-if (!fs.existsSync(codePath)) {
-  throw new Error('Code.gs পাওয়া যায়নি: ' + codePath);
-}
 
-vm.runInContext(
-  fs.readFileSync(barcodePath, 'utf8'),
-  ctx,
-  { filename: barcodePath }
+// Check required files before running VM.
+
+requireFile(
+  BARCODE_FILE,
+  'apps-script/Barcode.gs'
 );
 
-vm.runInContext(
-  fs.readFileSync(codePath, 'utf8'),
-  ctx,
-  { filename: codePath }
+requireFile(
+  CODE_FILE,
+  'apps-script/Code.gs'
 );
 
-if (opts.server) {
-  vm.runInContext(
-    fs.readFileSync(apiPath, 'utf8'),
-    ctx,
-    { filename: apiPath }
+
+// Api.gs is required only when server mode is used.
+// Therefore it is checked inside makeEnv().
+
+
+// ============================================================
+// READ FILE
+// ============================================================
+
+function readScript(filePath) {
+  requireFile(filePath, filePath);
+
+  return fs.readFileSync(
+    filePath,
+    'utf8'
   );
-});
-  const call = (fn, ...a) => vm.runInContext(fn, ctx)(...a);
-  return { ctx, store, call, clock, setNow: iso => (clock.now = new Date(iso)), sheets: store.tables };
 }
 
-let fails = 0, passes = 0;
-function ok(c, msg) { if (!c) { fails++; console.log('FAIL:', msg); } else { passes++; if (process.env.VERBOSE) console.log('ok  :', msg); } }
-function eq(a, b, msg) { const x = JSON.stringify(a), y = JSON.stringify(b); ok(x === y, msg + (x === y ? '' : ' => ' + x + ' expected ' + y)); }
-function done(name) { console.log(name + ': ' + (fails ? 'FAILED ' + fails : 'ALL PASSED (' + passes + ' checks)')); process.exit(fails ? 1 : 0); }
 
-module.exports = { makeEnv, ok, eq, done };
+// ============================================================
+// MAKE TEST ENVIRONMENT
+// ============================================================
+
+function makeEnv(opts) {
+
+  opts = opts || {};
+
+
+  // ----------------------------------------------------------
+  // Fake storage
+  // ----------------------------------------------------------
+
+  const store =
+    opts.store ||
+    {
+      tables: {},
+      props: {},
+      cache: {},
+      files: {}
+    };
+
+
+  // ----------------------------------------------------------
+  // Optional Sheet1
+  // ----------------------------------------------------------
+
+  if (opts.sheet1) {
+    store.tables['Sheet1'] = [];
+  }
+
+
+  // ----------------------------------------------------------
+  // GAS Shim
+  // ----------------------------------------------------------
+
+  const shim = createShim(store);
+
+
+  // ----------------------------------------------------------
+  // Fake clock
+  // ----------------------------------------------------------
+
+  const clock = {
+    now: new Date(
+      opts.now ||
+      '2026-09-19T10:00:00Z'
+    )
+  };
+
+
+  // ----------------------------------------------------------
+  // Fake Date
+  // ----------------------------------------------------------
+
+  const FakeDate = class extends Date {
+
+    constructor(...args) {
+
+      if (args.length === 0) {
+        super(clock.now.getTime());
+      } else {
+        super(...args);
+      }
+
+    }
+
+    static now() {
+      return clock.now.getTime();
+    }
+
+  };
+
+
+  // ----------------------------------------------------------
+  // Global environment
+  // ----------------------------------------------------------
+
+  const g = Object.assign(
+    {
+      console,
+      Date: FakeDate
+    },
+    shim.globals
+  );
+
+
+  // ==========================================================
+  // SERVER ENVIRONMENT
+  // ==========================================================
+
+  if (opts.server) {
+
+    // --------------------------------------------------------
+    // ContentService
+    // --------------------------------------------------------
+
+    g.ContentService = {
+
+      MimeType: {
+        JSON: 'JSON'
+      },
+
+      createTextOutput: function (text) {
+
+        return {
+
+          text,
+
+          setMimeType() {
+            return this;
+          },
+
+          getContent() {
+            return text;
+          }
+
+        };
+
+      }
+
+    };
+
+
+    // --------------------------------------------------------
+    // Utilities
+    // --------------------------------------------------------
+
+    g.Utilities = Object.assign(
+      {},
+      g.Utilities,
+      {
+
+        computeDigest: (
+          algorithm,
+          value
+        ) => {
+
+          return Array.from(
+            crypto
+              .createHash('md5')
+              .update(String(value))
+              .digest()
+          ).map(
+            byte =>
+              byte > 127
+                ? byte - 256
+                : byte
+          );
+
+        },
+
+        DigestAlgorithm: {
+          MD5: 'MD5'
+        },
+
+        Charset: {
+          UTF_8: 'UTF_8'
+        }
+
+      }
+    );
+
+
+    // --------------------------------------------------------
+    // DriveApp
+    // --------------------------------------------------------
+
+    g.DriveApp = Object.assign(
+      {},
+      g.DriveApp,
+      {
+
+        getFileById: id => ({
+
+          setTrashed() {
+
+            delete store.files[id];
+
+          },
+
+          getBlob() {
+
+            const file =
+              store.files[id];
+
+            if (!file) {
+              throw new Error(
+                'Drive file not found: ' + id
+              );
+            }
+
+            return {
+
+              getContentType: () =>
+                file.mime,
+
+              getBytes: () =>
+                file.bytes
+
+            };
+
+          }
+
+        })
+
+      }
+    );
+
+  }
+
+
+  // ==========================================================
+  // CREATE VM CONTEXT
+  // ==========================================================
+
+  const ctx = vm.createContext(g);
+
+
+  // ==========================================================
+  // LOAD BARCODE.GS
+  // ==========================================================
+
+  vm.runInContext(
+    readScript(BARCODE_FILE),
+    ctx,
+    {
+      filename: BARCODE_FILE
+    }
+  );
+
+
+  // ==========================================================
+  // LOAD CODE.GS
+  // ==========================================================
+
+  vm.runInContext(
+    readScript(CODE_FILE),
+    ctx,
+    {
+      filename: CODE_FILE
+    }
+  );
+
+
+  // ==========================================================
+  // LOAD API.GS WHEN SERVER MODE IS ENABLED
+  // ==========================================================
+
+  if (opts.server) {
+
+    requireFile(
+      API_FILE,
+      'apps-script/Api.gs'
+    );
+
+    vm.runInContext(
+      readScript(API_FILE),
+      ctx,
+      {
+        filename: API_FILE
+      }
+    );
+
+  }
+
+
+  // ==========================================================
+  // FUNCTION CALLER
+  // ==========================================================
+
+  const call = (
+    fn,
+    ...args
+  ) => {
+
+    const target =
+      vm.runInContext(
+        fn,
+        ctx
+      );
+
+    if (typeof target !== 'function') {
+
+      throw new Error(
+        `Test function "${fn}" was not found.`
+      );
+
+    }
+
+    return target(...args);
+
+  };
+
+
+  // ==========================================================
+  // RETURN ENVIRONMENT
+  // ==========================================================
+
+  return {
+
+    ctx,
+
+    store,
+
+    call,
+
+    clock,
+
+    setNow: iso => {
+
+      clock.now =
+        new Date(iso);
+
+    },
+
+    sheets: store.tables
+
+  };
+
+}
+
+
+// ============================================================
+// TEST RESULT COUNTERS
+// ============================================================
+
+let fails = 0;
+let passes = 0;
+
+
+// ============================================================
+// ASSERTION
+// ============================================================
+
+function ok(condition, message) {
+
+  if (!condition) {
+
+    fails++;
+
+    console.log(
+      'FAIL:',
+      message
+    );
+
+  } else {
+
+    passes++;
+
+    if (process.env.VERBOSE) {
+
+      console.log(
+        'ok  :',
+        message
+      );
+
+    }
+
+  }
+
+}
+
+
+// ============================================================
+// EQUALITY ASSERTION
+// ============================================================
+
+function eq(
+  actual,
+  expected,
+  message
+) {
+
+  const actualJson =
+    JSON.stringify(actual);
+
+  const expectedJson =
+    JSON.stringify(expected);
+
+
+  ok(
+    actualJson === expectedJson,
+
+    message +
+      (
+        actualJson === expectedJson
+          ? ''
+          :
+          ' => ' +
+          actualJson +
+          ' expected ' +
+          expectedJson
+      )
+  );
+
+}
+
+
+// ============================================================
+// TEST COMPLETE
+// ============================================================
+
+function done(name) {
+
+  const failed =
+    fails > 0;
+
+
+  if (failed) {
+
+    console.log(
+      `${name}: FAILED ${fails} test(s)`
+    );
+
+  } else {
+
+    console.log(
+      `${name}: ALL PASSED (${passes} checks)`
+    );
+
+  }
+
+
+  process.exit(
+    failed
+      ? 1
+      : 0
+  );
+
+}
+
+
+// ============================================================
+// EXPORT
+// ============================================================
+
+module.exports = {
+
+  makeEnv,
+
+  ok,
+
+  eq,
+
+  done
+
+};
