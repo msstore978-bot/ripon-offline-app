@@ -1,0 +1,12 @@
+{
+  "name": "ripon-offline",
+  "version": "1.0.0",
+  "private": true,
+  "description": "রিপন ম্যানেজমেন্ট — অফলাইন স্টক ও POS (PWA), ব্যাকএন্ড Google Sheets + Drive",
+  "scripts": {
+    "test": "node tests/backend.test.js && node tests/barcode.test.js && node tests/sync.test.js && node tests/scanner.test.js",
+    "build": "node build.mjs",
+    "serve": "npx --yes http-server dist -p 8080 -c-1"
+  },
+  "engines": { "node": ">=20" }
+}
