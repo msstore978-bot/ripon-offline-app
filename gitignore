@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.DS_Store
+twa/android.keystore
+twa/build/
+twa/app/build/
+twa/.gradle/
+twa/gradlew.bat.orig

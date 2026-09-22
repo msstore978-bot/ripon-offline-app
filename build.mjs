@@ -18,6 +18,8 @@ mkdirSync(join(dist, 'gas'), { recursive: true });
 cpSync(join(root, 'web'), dist, { recursive: true });
 cpSync(join(root, 'apps-script', 'Code.gs'), join(dist, 'gas', 'Code.gs.txt'));
 cpSync(join(root, 'apps-script', 'Barcode.gs'), join(dist, 'gas', 'Barcode.gs.txt'));
+cpSync(join(root, 'apps-script', 'Api.gs'), join(dist, 'gas', 'Api.gs.txt'));
+cpSync(join(root, 'apps-script', 'appsscript.json'), join(dist, 'gas', 'appsscript.json'));
 writeFileSync(join(dist, '.nojekyll'), '');
 
 /* ---- ফন্ট লোকাল করা (ব্যর্থ হলে Google Fonts লিংকই থাকবে; Service Worker সেটা ক্যাশ করবে) ---- */
