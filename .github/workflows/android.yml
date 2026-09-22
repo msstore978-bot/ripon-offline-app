@@ -1,0 +1,95 @@
+name: Build Android APK (TWA / Bubblewrap)
+
+# এই workflow ততক্ষণ কিছু করে না যতক্ষণ না আপনি একবার নিজের কম্পিউটারে
+# `bubblewrap init` চালিয়ে twa/twa-manifest.json রিপোতে পুশ করেছেন — দেখুন twa/README.md
+
+on:
+  push:
+    branches: [main]
+    paths: ['twa/**', '.github/workflows/android.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: twa/twa-manifest.json আছে কিনা দেখা
+        id: check
+        run: |
+          if [ -f "twa/twa-manifest.json" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::twa/twa-manifest.json পাওয়া যায়নি — প্রথমে twa/README.md-এর ধাপ ১ অনুযায়ী নিজের কম্পিউটারে 'bubblewrap init' চালিয়ে সেটা রিপোতে পুশ করুন। এখনকার মতো এই ধাপ বাদ দেওয়া হলো (ব্যর্থ নয়)।"
+          fi
+
+      - uses: actions/setup-node@v4
+        if: steps.check.outputs.ready == 'true'
+        with:
+          node-version: 20
+
+      - uses: actions/setup-java@v4
+        if: steps.check.outputs.ready == 'true'
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+        if: steps.check.outputs.ready == 'true'
+
+      - name: Bubblewrap CLI ইনস্টল
+        if: steps.check.outputs.ready == 'true'
+        run: npm install -g @bubblewrap/cli
+
+      - name: সাইনিং-কি প্রস্তুত করা
+        if: steps.check.outputs.ready == 'true'
+        id: keys
+        run: |
+          if [ -n "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" ]; then
+            echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > twa/android.keystore
+            echo "storepass=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" >> "$GITHUB_OUTPUT"
+            echo "keypass=${{ secrets.ANDROID_KEY_PASSWORD }}" >> "$GITHUB_OUTPUT"
+            echo "mode=সংরক্ষিত সাইনিং-কি (secrets) ব্যবহার হয়েছে" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::ANDROID_KEYSTORE_BASE64 secret দেওয়া নেই — একটি অস্থায়ী ডিবাগ কি বানানো হচ্ছে। এই APK পরে আপডেট করা যাবে না; আসল ব্যবহারের জন্য twa/README.md-এর ধাপ ১-২ করুন।"
+          fi
+        env:
+          HAS_SECRET: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+
+      - name: (secret না থাকলে) অস্থায়ী ডিবাগ কি বানানো
+        if: steps.check.outputs.ready == 'true' && steps.keys.outputs.mode == ''
+        run: |
+          keytool -genkeypair -v -keystore twa/android.keystore -storepass tempdebug123 -keypass tempdebug123 \
+            -alias android -keyalg RSA -keysize 2048 -validity 10000 \
+            -dname "CN=রিপন ম্যানেজমেন্ট, OU=Dev, O=Local, L=Dhaka, S=Dhaka, C=BD"
+          echo "storepass=tempdebug123" >> "$GITHUB_OUTPUT"
+          echo "keypass=tempdebug123" >> "$GITHUB_OUTPUT"
+        id: debugkey
+
+      - name: APK বিল্ড (bubblewrap build)
+        if: steps.check.outputs.ready == 'true'
+        working-directory: twa
+        run: |
+          STOREPASS="${{ steps.keys.outputs.storepass || steps.debugkey.outputs.storepass }}"
+          KEYPASS="${{ steps.keys.outputs.keypass || steps.debugkey.outputs.keypass }}"
+          printf '%s\n%s\n' "$STOREPASS" "$KEYPASS" | bubblewrap build --skipPwaValidation
+
+      - name: APK খুঁজে বের করা
+        if: steps.check.outputs.ready == 'true'
+        id: apk
+        run: |
+          f=$(find twa -maxdepth 4 -iname "*-signed.apk" -o -iname "app-release-signed.apk" | head -n1)
+          if [ -z "$f" ]; then f=$(find twa -maxdepth 4 -iname "*.apk" | head -n1); fi
+          if [ -z "$f" ]; then echo "::error::কোনো APK ফাইল পাওয়া যায়নি — bubblewrap build-এর লগ দেখুন"; exit 1; fi
+          echo "path=$f" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        if: steps.check.outputs.ready == 'true'
+        with:
+          name: ripon-android-apk
+          path: ${{ steps.apk.outputs.path }}
