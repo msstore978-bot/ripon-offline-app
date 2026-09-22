@@ -2,7 +2,8 @@ name: Build & Deploy (GitHub Pages)
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
@@ -11,7 +12,7 @@ permissions:
   id-token: write
 
 concurrency:
-  group: pages
+  group: github-pages
   cancel-in-progress: true
 
 jobs:
@@ -19,36 +20,151 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # ----------------------------------------
+      # 1. Checkout repository
+      # ----------------------------------------
       - name: Checkout
         uses: actions/checkout@v4
 
+      # ----------------------------------------
+      # 2. Setup Node.js
+      # ----------------------------------------
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 24
+          cache: npm
 
+      # ----------------------------------------
+      # 3. Install dependencies
+      # ----------------------------------------
+      - name: Install dependencies
+        run: npm ci
+
+      # ----------------------------------------
+      # 4. Debug repository structure
+      # ----------------------------------------
+      # এটি সাময়িকভাবে রাখা হয়েছে যাতে
+      # Code.gs/Barcode.gs path সমস্যা হলে
+      # Actions log-এ পরিষ্কার দেখা যায়।
+      # ----------------------------------------
+      - name: Debug repository files
+        shell: bash
+        run: |
+          echo "========================================"
+          echo "GITHUB_WORKSPACE"
+          echo "========================================"
+          echo "$GITHUB_WORKSPACE"
+
+          echo ""
+          echo "========================================"
+          echo "CURRENT DIRECTORY"
+          echo "========================================"
+          pwd
+
+          echo ""
+          echo "========================================"
+          echo "ROOT FILES"
+          echo "========================================"
+          ls -la
+
+          echo ""
+          echo "========================================"
+          echo "APPS-SCRIPT FILES"
+          echo "========================================"
+
+          if [ -d "apps-script" ]; then
+            ls -la apps-script
+          else
+            echo "ERROR: apps-script directory NOT FOUND"
+            exit 1
+          fi
+
+          echo ""
+          echo "========================================"
+          echo "REQUIRED FILE CHECK"
+          echo "========================================"
+
+          test -f "$GITHUB_WORKSPACE/apps-script/Code.gs" \
+            && echo "OK: Code.gs found" \
+            || { echo "ERROR: Code.gs NOT FOUND"; exit 1; }
+
+          test -f "$GITHUB_WORKSPACE/apps-script/Barcode.gs" \
+            && echo "OK: Barcode.gs found" \
+            || { echo "ERROR: Barcode.gs NOT FOUND"; exit 1; }
+
+          test -f "$GITHUB_WORKSPACE/apps-script/Api.gs" \
+            && echo "OK: Api.gs found" \
+            || { echo "ERROR: Api.gs NOT FOUND"; exit 1; }
+
+          test -f "$GITHUB_WORKSPACE/apps-script/Index.html" \
+            && echo "OK: Index.html found" \
+            || { echo "ERROR: Index.html NOT FOUND"; exit 1; }
+
+          echo ""
+          echo "All required files found."
+
+      # ----------------------------------------
+      # 5. Run tests
+      # ----------------------------------------
       - name: টেস্ট (Code.gs + অফলাইন সিঙ্ক)
         run: npm test
 
+      # ----------------------------------------
+      # 6. Build application
+      # ----------------------------------------
       - name: অ্যাপ বিল্ড
         run: node build.mjs
 
+      # ----------------------------------------
+      # 7. Verify build output
+      # ----------------------------------------
+      - name: Verify build output
+        shell: bash
+        run: |
+          echo "========================================"
+          echo "BUILD OUTPUT"
+          echo "========================================"
+
+          if [ ! -d "dist" ]; then
+            echo "ERROR: dist directory was not created."
+            exit 1
+          fi
+
+          ls -la dist
+
+          echo ""
+          echo "Build output verified successfully."
+
+      # ----------------------------------------
+      # 8. Configure GitHub Pages
+      # ----------------------------------------
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
 
-      - name: Upload Pages Artifact
+      # ----------------------------------------
+      # 9. Upload Pages artifact
+      # ----------------------------------------
+      - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: dist
+          path: ./dist
 
-      - name: বিল্ডের কপি
+      # ----------------------------------------
+      # 10. Upload downloadable build copy
+      # ----------------------------------------
+      - name: বিল্ডের কপি (ডাউনলোডের জন্য)
         uses: actions/upload-artifact@v4
         with:
           name: ripon-offline-app
-          path: dist
+          path: ./dist
 
+  # ============================================
+  # DEPLOY JOB
+  # ============================================
   deploy:
     needs: build
+
     runs-on: ubuntu-latest
 
     environment:
