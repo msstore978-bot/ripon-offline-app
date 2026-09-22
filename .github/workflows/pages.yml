@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+
   workflow_dispatch:
 
 permissions:
@@ -15,74 +16,152 @@ concurrency:
   group: github-pages
   cancel-in-progress: true
 
+
 jobs:
+
+  # =========================================================
+  # BUILD JOB
+  # =========================================================
   build:
+    name: Build
     runs-on: ubuntu-latest
 
     steps:
+
+      # -----------------------------------------------------
+      # 1. Checkout repository
+      # -----------------------------------------------------
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
+
+      # -----------------------------------------------------
+      # 2. Setup Node.js 24
+      # IMPORTANT:
+      # No npm cache because this project currently has
+      # no package-lock.json.
+      # -----------------------------------------------------
       - name: Setup Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v7
         with:
-          node-version: 24
-          cache: npm
-          cache-dependency-path: package-lock.json
+          node-version: '24'
+          package-manager-cache: false
 
+
+      # -----------------------------------------------------
+      # 3. Verify repository structure
+      # -----------------------------------------------------
       - name: Verify package files
         shell: bash
         run: |
           set -euo pipefail
+
+          echo "Checking repository structure..."
+
           test -f package.json
-          test -f package-lock.json
           test -f build.mjs
+
           test -f tests/harness.js
+          test -f tests/backend.test.js
+          test -f tests/barcode.test.js
+          test -f tests/sync.test.js
+          test -f tests/scanner.test.js
+
           test -f apps-script/Code.gs
           test -f apps-script/Barcode.gs
           test -f apps-script/Api.gs
           test -f apps-script/Index.html
+
           test -f web/index.html
+
+          echo ""
           echo "Repository structure OK."
 
-      - name: Install dependencies
-        run: npm ci
 
+      # -----------------------------------------------------
+      # 4. Install dependencies
+      #
+      # npm ci is NOT used because there is currently
+      # no package-lock.json.
+      # -----------------------------------------------------
+      - name: Install dependencies
+        run: npm install --no-package-lock
+
+
+      # -----------------------------------------------------
+      # 5. Run all automated tests
+      # -----------------------------------------------------
       - name: Run tests
         run: npm test
 
+
+      # -----------------------------------------------------
+      # 6. Build application
+      # -----------------------------------------------------
       - name: Build application
         run: npm run build
 
+
+      # -----------------------------------------------------
+      # 7. Verify generated dist/
+      # -----------------------------------------------------
       - name: Verify build output
         shell: bash
         run: |
           set -euo pipefail
+
+          echo "Checking dist/..."
+
           test -d dist
           test -f dist/index.html
           test -f dist/sw.js
           test -f dist/version.json
+
+          test -d dist/gas
           test -f dist/gas/Code.gs.txt
           test -f dist/gas/Barcode.gs.txt
-          echo "Build output OK."
-          find dist -maxdepth 2 -type f | sort
 
+          echo ""
+          echo "Build output OK."
+
+          echo ""
+          echo "Generated files:"
+          find dist -maxdepth 3 -type f | sort
+
+
+      # -----------------------------------------------------
+      # 8. Configure GitHub Pages
+      # -----------------------------------------------------
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
 
+
+      # -----------------------------------------------------
+      # 9. Upload GitHub Pages artifact
+      # -----------------------------------------------------
       - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v4
         with:
           path: ./dist
 
+
+      # -----------------------------------------------------
+      # 10. Save build artifact for debugging/download
+      # -----------------------------------------------------
       - name: Save build artifact
         uses: actions/upload-artifact@v4
         with:
           name: ripon-offline-app
           path: ./dist
 
+
+  # =========================================================
+  # DEPLOY JOB
+  # =========================================================
   deploy:
+    name: Deploy
     needs: build
+
     runs-on: ubuntu-latest
 
     environment:
@@ -90,6 +169,10 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
 
     steps:
+
+      # -----------------------------------------------------
+      # Deploy to GitHub Pages
+      # -----------------------------------------------------
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
