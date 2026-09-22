@@ -20,114 +20,109 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # ----------------------------------------
-      # 1. Checkout repository
-      # ----------------------------------------
+
+      # ==========================================
+      # 1. Checkout
+      # ==========================================
       - name: Checkout
         uses: actions/checkout@v4
 
-      # ----------------------------------------
+
+      # ==========================================
       # 2. Setup Node.js
-      # ----------------------------------------
+      # ==========================================
+      # IMPORTANT:
+      # No npm cache here because this project
+      # does not currently contain package-lock.json.
+      # ==========================================
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: npm
 
-      # ----------------------------------------
+
+      # ==========================================
       # 3. Install dependencies
-      # ----------------------------------------
+      # ==========================================
+      # npm install works without package-lock.json.
+      # ==========================================
       - name: Install dependencies
-        run: npm ci
+        run: npm install
 
-      # ----------------------------------------
-      # 4. Debug repository structure
-      # ----------------------------------------
-      # এটি সাময়িকভাবে রাখা হয়েছে যাতে
-      # Code.gs/Barcode.gs path সমস্যা হলে
-      # Actions log-এ পরিষ্কার দেখা যায়।
-      # ----------------------------------------
-      - name: Debug repository files
+
+      # ==========================================
+      # 4. Verify repository structure
+      # ==========================================
+      - name: Verify repository files
         shell: bash
         run: |
           echo "========================================"
-          echo "GITHUB_WORKSPACE"
+          echo "Repository"
           echo "========================================"
-          echo "$GITHUB_WORKSPACE"
 
-          echo ""
-          echo "========================================"
-          echo "CURRENT DIRECTORY"
-          echo "========================================"
           pwd
 
           echo ""
-          echo "========================================"
-          echo "ROOT FILES"
-          echo "========================================"
+          echo "Root files:"
           ls -la
 
           echo ""
-          echo "========================================"
-          echo "APPS-SCRIPT FILES"
-          echo "========================================"
+          echo "apps-script files:"
 
-          if [ -d "apps-script" ]; then
-            ls -la apps-script
-          else
-            echo "ERROR: apps-script directory NOT FOUND"
+          if [ ! -d "apps-script" ]; then
+            echo "ERROR: apps-script directory not found!"
             exit 1
           fi
 
-          echo ""
-          echo "========================================"
-          echo "REQUIRED FILE CHECK"
-          echo "========================================"
-
-          test -f "$GITHUB_WORKSPACE/apps-script/Code.gs" \
-            && echo "OK: Code.gs found" \
-            || { echo "ERROR: Code.gs NOT FOUND"; exit 1; }
-
-          test -f "$GITHUB_WORKSPACE/apps-script/Barcode.gs" \
-            && echo "OK: Barcode.gs found" \
-            || { echo "ERROR: Barcode.gs NOT FOUND"; exit 1; }
-
-          test -f "$GITHUB_WORKSPACE/apps-script/Api.gs" \
-            && echo "OK: Api.gs found" \
-            || { echo "ERROR: Api.gs NOT FOUND"; exit 1; }
-
-          test -f "$GITHUB_WORKSPACE/apps-script/Index.html" \
-            && echo "OK: Index.html found" \
-            || { echo "ERROR: Index.html NOT FOUND"; exit 1; }
+          ls -la apps-script
 
           echo ""
-          echo "All required files found."
+          echo "Checking required files..."
 
-      # ----------------------------------------
+          test -f "apps-script/Code.gs" \
+            || { echo "ERROR: Code.gs not found"; exit 1; }
+
+          test -f "apps-script/Barcode.gs" \
+            || { echo "ERROR: Barcode.gs not found"; exit 1; }
+
+          test -f "apps-script/Api.gs" \
+            || { echo "ERROR: Api.gs not found"; exit 1; }
+
+          test -f "apps-script/Index.html" \
+            || { echo "ERROR: Index.html not found"; exit 1; }
+
+          echo ""
+          echo "========================================"
+          echo "ALL REQUIRED FILES FOUND"
+          echo "========================================"
+
+
+      # ==========================================
       # 5. Run tests
-      # ----------------------------------------
+      # ==========================================
       - name: টেস্ট (Code.gs + অফলাইন সিঙ্ক)
         run: npm test
 
-      # ----------------------------------------
+
+      # ==========================================
       # 6. Build application
-      # ----------------------------------------
+      # ==========================================
       - name: অ্যাপ বিল্ড
         run: node build.mjs
 
-      # ----------------------------------------
-      # 7. Verify build output
-      # ----------------------------------------
+
+      # ==========================================
+      # 7. Verify dist
+      # ==========================================
       - name: Verify build output
         shell: bash
         run: |
           echo "========================================"
-          echo "BUILD OUTPUT"
+          echo "Checking dist directory"
           echo "========================================"
 
           if [ ! -d "dist" ]; then
-            echo "ERROR: dist directory was not created."
+            echo "ERROR: dist directory was not created!"
             exit 1
           fi
 
@@ -136,31 +131,35 @@ jobs:
           echo ""
           echo "Build output verified successfully."
 
-      # ----------------------------------------
+
+      # ==========================================
       # 8. Configure GitHub Pages
-      # ----------------------------------------
+      # ==========================================
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
 
-      # ----------------------------------------
+
+      # ==========================================
       # 9. Upload Pages artifact
-      # ----------------------------------------
+      # ==========================================
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
           path: ./dist
 
-      # ----------------------------------------
-      # 10. Upload downloadable build copy
-      # ----------------------------------------
-      - name: বিল্ডের কপি (ডাউনলোডের জন্য)
+
+      # ==========================================
+      # 10. Save build artifact
+      # ==========================================
+      - name: বিল্ডের কপি
         uses: actions/upload-artifact@v4
         with:
           name: ripon-offline-app
           path: ./dist
 
+
   # ============================================
-  # DEPLOY JOB
+  # DEPLOY
   # ============================================
   deploy:
     needs: build
@@ -172,6 +171,7 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
 
     steps:
+
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
