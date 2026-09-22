@@ -4,8 +4,7 @@
  */
 const fs = require('fs'), path = require('path'), vm = require('vm'), crypto = require('crypto');
 const { createShim } = require('../web/js/gas-shim.js');
-const root = path.join(__dirname, '..');
-
+const root = process.env.GITHUB_WORKSPACE || path.resolve(__dirname, '..');
 function makeEnv(opts) {
   opts = opts || {};
   const store = opts.store || { tables: {}, props: {}, cache: {}, files: {} };
@@ -33,7 +32,37 @@ function makeEnv(opts) {
   const ctx = vm.createContext(g);
   vm.runInContext(fs.readFileSync(path.join(root, 'apps-script/Barcode.gs'), 'utf8'), ctx, { filename: 'Barcode.gs' });
   vm.runInContext(fs.readFileSync(path.join(root, 'apps-script/Code.gs'), 'utf8'), ctx, { filename: 'Code.gs' });
-  if (opts.server) vm.runInContext(fs.readFileSync(path.join(root, 'apps-script/Api.gs'), 'utf8'), ctx, { filename: 'Api.gs' });
+  if (opts.server) vm.runInContext(const barcodePath = path.join(root, 'apps-script', 'Barcode.gs');
+const codePath = path.join(root, 'apps-script', 'Code.gs');
+const apiPath = path.join(root, 'apps-script', 'Api.gs');
+
+if (!fs.existsSync(barcodePath)) {
+  throw new Error('Barcode.gs পাওয়া যায়নি: ' + barcodePath);
+}
+
+if (!fs.existsSync(codePath)) {
+  throw new Error('Code.gs পাওয়া যায়নি: ' + codePath);
+}
+
+vm.runInContext(
+  fs.readFileSync(barcodePath, 'utf8'),
+  ctx,
+  { filename: barcodePath }
+);
+
+vm.runInContext(
+  fs.readFileSync(codePath, 'utf8'),
+  ctx,
+  { filename: codePath }
+);
+
+if (opts.server) {
+  vm.runInContext(
+    fs.readFileSync(apiPath, 'utf8'),
+    ctx,
+    { filename: apiPath }
+  );
+});
   const call = (fn, ...a) => vm.runInContext(fn, ctx)(...a);
   return { ctx, store, call, clock, setNow: iso => (clock.now = new Date(iso)), sheets: store.tables };
 }
