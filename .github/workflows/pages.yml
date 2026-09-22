@@ -17,20 +17,31 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
+
       - name: টেস্ট (Code.gs + অফলাইন সিঙ্ক)
         run: npm test
+
       - name: অ্যাপ বিল্ড
         run: node build.mjs
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages Artifact
+        uses: actions/upload-pages-artifact@v3
         with:
           path: dist
-      - name: বিল্ডের কপি (ডাউনলোডের জন্য)
+
+      - name: বিল্ডের কপি
         uses: actions/upload-artifact@v4
         with:
           name: ripon-offline-app
@@ -39,9 +50,12 @@ jobs:
   deploy:
     needs: build
     runs-on: ubuntu-latest
+
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
+
     steps:
-      - id: deployment
+      - name: Deploy to GitHub Pages
+        id: deployment
         uses: actions/deploy-pages@v4
